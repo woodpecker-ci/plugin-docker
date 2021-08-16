@@ -1,9 +1,9 @@
 package main
 
 import (
+	"github.com/joho/godotenv"
 	"os"
 
-	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 
@@ -17,8 +17,9 @@ var (
 func main() {
 	// Load env-file if it exists first
 	if env := os.Getenv("PLUGIN_ENV_FILE"); env != "" {
-		godotenv.Load(env)
+		godotenv.Load("env")
 	}
+	//godotenv.Load("/Users/eoinmcafee/Desktop/Code/drone-docker/.env")
 
 	app := cli.NewApp()
 	app.Name = "docker plugin"
@@ -248,6 +249,46 @@ func main() {
 			Usage:  "additional host:IP mapping",
 			EnvVar: "PLUGIN_ADD_HOST",
 		},
+		cli.StringFlag{
+			Name:   "ci-repo",
+			Usage:  "drone ci repo name",
+			EnvVar: "CI_REPO",
+		},
+		cli.StringFlag{
+			Name:   "build-number",
+			Usage:  "drone build number",
+			EnvVar: "DRONE_BUILD_NUMBER",
+		},
+		cli.StringFlag{
+			Name:   "stage-number",
+			Usage:  "drone stage number",
+			EnvVar: "DRONE_STAGE_NUMBER",
+		},
+		cli.StringFlag{
+			Name:   "step-number",
+			Usage:  "drone step number",
+			EnvVar: "DRONE_STEP_NUMBER",
+		},
+		cli.StringFlag{
+			Name:   "ci-author",
+			Usage:  "build author",
+			EnvVar: "CI_COMMIT_AUTHOR",
+		},
+		cli.StringFlag{
+			Name:   "drone-protocol",
+			Usage:  "drone protocol",
+			EnvVar: "DRONE_RPC_PROTO",
+		},
+		cli.StringFlag{
+			Name:   "drone-host",
+			Usage:  "drone host",
+			EnvVar: "DRONE_RPC_HOST",
+		},
+		cli.StringFlag{
+			Name:   "drone-auth-token",
+			Usage:  "drone auth token",
+			EnvVar: "DRONE_AUTH_TOKEN",
+		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -267,26 +308,26 @@ func run(c *cli.Context) error {
 			Config:   c.String("docker.config"),
 		},
 		Build: docker.Build{
-			Remote:        c.String("remote.url"),
-			Name:          c.String("commit.sha"),
-			Dockerfile:    c.String("dockerfile"),
-			Context:       c.String("context"),
-			Tags:          c.StringSlice("tags"),
-			Args:          c.StringSlice("args"),
-			ArgsEnv:       c.StringSlice("args-from-env"),
-			Target:        c.String("target"),
-			Squash:        c.Bool("squash"),
-			Pull:          c.BoolT("pull-image"),
-			CacheFrom:     c.StringSlice("cache-from"),
-			Compress:      c.Bool("compress"),
-			Repo:          c.String("repo"),
-			Labels:        c.StringSlice("custom-labels"),
-			LabelSchema:   c.StringSlice("label-schema"),
-			AutoLabel:     c.BoolT("auto-label"),
-			Link:          c.String("link"),
-			NoCache:       c.Bool("no-cache"),
-			AddHost:       c.StringSlice("add-host"),
-			Quiet:         c.Bool("quiet"),
+			Remote:      c.String("remote.url"),
+			Name:        c.String("commit.sha"),
+			Dockerfile:  c.String("dockerfile"),
+			Context:     c.String("context"),
+			Tags:        c.StringSlice("tags"),
+			Args:        c.StringSlice("args"),
+			ArgsEnv:     c.StringSlice("args-from-env"),
+			Target:      c.String("target"),
+			Squash:      c.Bool("squash"),
+			Pull:        c.BoolT("pull-image"),
+			CacheFrom:   c.StringSlice("cache-from"),
+			Compress:    c.Bool("compress"),
+			Repo:        c.String("repo"),
+			Labels:      c.StringSlice("custom-labels"),
+			LabelSchema: c.StringSlice("label-schema"),
+			AutoLabel:   c.BoolT("auto-label"),
+			Link:        c.String("link"),
+			NoCache:     c.Bool("no-cache"),
+			AddHost:     c.StringSlice("add-host"),
+			Quiet:       c.Bool("quiet"),
 		},
 		Daemon: docker.Daemon{
 			Registry:      c.String("docker.registry"),
@@ -302,6 +343,16 @@ func run(c *cli.Context) error {
 			DNSSearch:     c.StringSlice("daemon.dns-search"),
 			MTU:           c.String("daemon.mtu"),
 			Experimental:  c.Bool("daemon.experimental"),
+		},
+		Repo: docker.Repo{
+			Name:        c.String("ci-repo"),
+			BuildNumber: c.String("build-number"),
+			StageNumber: c.String("stage-number"),
+			StepNumber:  c.String("step-number"),
+			Author:      c.String("ci-author"),
+			ServerHost: c.String("drone-host"),
+			ServerProtocol: c.String("drone-protocol"),
+			AuthToken: c.String("drone-auth-token"),
 		},
 	}
 

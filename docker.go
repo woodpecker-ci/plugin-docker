@@ -1,13 +1,20 @@
 package docker
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/drone-plugins/drone-docker/internal"
+	"github.com/drone/drone-go/drone"
 )
 
 type (
@@ -39,26 +46,37 @@ type (
 
 	// Build defines Docker build parameters.
 	Build struct {
-		Remote        string   // Git remote URL
-		Name          string   // Docker build using default named tag
-		Dockerfile    string   // Docker build Dockerfile
-		Context       string   // Docker build context
-		Tags          []string // Docker build tags
-		Args          []string // Docker build args
-		ArgsEnv       []string // Docker build args from env
-		Target        string   // Docker build target
-		Squash        bool     // Docker build squash
-		Pull          bool     // Docker build pull
-		CacheFrom     []string // Docker build cache-from
-		Compress      bool     // Docker build compress
-		Repo          string   // Docker build repository
-		LabelSchema   []string // label-schema Label map
-		AutoLabel     bool     // auto-label bool
-		Labels        []string // Label map
-		Link          string   // Git repo link
-		NoCache       bool     // Docker build no-cache
-		AddHost       []string // Docker build add-host
-		Quiet         bool     // Docker build quiet
+		Remote      string   // Git remote URL
+		Name        string   // Docker build using default named tag
+		Dockerfile  string   // Docker build Dockerfile
+		Context     string   // Docker build context
+		Tags        []string // Docker build tags
+		Args        []string // Docker build args
+		ArgsEnv     []string // Docker build args from env
+		Target      string   // Docker build target
+		Squash      bool     // Docker build squash
+		Pull        bool     // Docker build pull
+		CacheFrom   []string // Docker build cache-from
+		Compress    bool     // Docker build compress
+		Repo        string   // Docker build repository
+		LabelSchema []string // label-schema Label map
+		AutoLabel   bool     // auto-label bool
+		Labels      []string // Label map
+		Link        string   // Git repo link
+		NoCache     bool     // Docker build no-cache
+		AddHost     []string // Docker build add-host
+		Quiet       bool     // Docker build quiet
+	}
+
+	Repo struct {
+		Name           string
+		BuildNumber    string
+		StageNumber    string
+		StepNumber     string
+		Author         string
+		ServerHost     string
+		ServerProtocol string
+		AuthToken      string
 	}
 
 	// Plugin defines the Docker plugin parameters.
@@ -68,11 +86,42 @@ type (
 		Daemon  Daemon // Docker daemon configuration
 		Dryrun  bool   // Docker push is skipped
 		Cleanup bool   // Docker purge is enabled
+		Repo    Repo   // Repo details
+	}
+
+	CardData struct {
+		Repo       string
+		Sha        string
+		OS         string
+		Size       int
+		LastPushed time.Time
+		Author     string
+	}
+
+	Inspect []struct {
+		ID            string        `json:"Id"`
+		RepoTags      []string      `json:"RepoTags"`
+		RepoDigests   []interface{} `json:"RepoDigests"`
+		Parent        string        `json:"Parent"`
+		Comment       string        `json:"Comment"`
+		Created       time.Time     `json:"Created"`
+		Container     string        `json:"Container"`
+		DockerVersion string        `json:"DockerVersion"`
+		Author        string        `json:"Author"`
+		Architecture  string        `json:"Architecture"`
+		Os            string        `json:"Os"`
+		Size          int           `json:"Size"`
+		VirtualSize   int           `json:"VirtualSize"`
+		Metadata      struct {
+			LastTagTime time.Time `json:"LastTagTime"`
+		} `json:"Metadata"`
 	}
 )
 
 // Exec executes the plugin step
 func (p Plugin) Exec() error {
+	var dockerImageProps Inspect
+
 	// start the Docker daemon server
 	if !p.Daemon.Disabled {
 		p.startDaemon()
@@ -141,7 +190,8 @@ func (p Plugin) Exec() error {
 		cmds = append(cmds, commandTag(p.Build, tag)) // docker tag
 
 		if p.Dryrun == false {
-			cmds = append(cmds, commandPush(p.Build, tag)) // docker push
+			cmds = append(cmds, commandPush(p.Build, tag))    // docker push
+			cmds = append(cmds, commandInspect(p.Build, tag)) // docker inspect
 		}
 	}
 
@@ -152,11 +202,22 @@ func (p Plugin) Exec() error {
 
 	// execute all commands in batch mode.
 	for _, cmd := range cmds {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		trace(cmd)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 
 		err := cmd.Run()
+		// print output
+		fmt.Printf(string(stdout.Bytes()))
+
+		// inspect container & post card data
+		if isCommandInspect(cmd.Args) {
+			err = json.Unmarshal(stdout.Bytes(), &dockerImageProps)
+			if err != nil {
+				fmt.Printf(err.Error())
+			}
+		}
+
 		if err != nil && isCommandPull(cmd.Args) {
 			fmt.Printf("Could not pull cache-from image %s. Ignoring...\n", cmd.Args[2])
 		} else if err != nil && isCommandPrune(cmd.Args) {
@@ -168,6 +229,51 @@ func (p Plugin) Exec() error {
 		}
 	}
 
+	err := PublishCard(dockerImageProps, p)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// PublishCard - push card details to server
+func PublishCard(dockerImageProps Inspect, p Plugin) error {
+	data := CardData{
+		Repo:       dockerImageProps[0].RepoTags[0],
+		Sha:        dockerImageProps[0].RepoDigests[0].(string),
+		OS:         dockerImageProps[0].Os,
+		Size:       dockerImageProps[0].Size,
+		LastPushed: dockerImageProps[0].Metadata.LastTagTime,
+		Author:     p.Repo.Author,
+	}
+
+	droneUri := url.URL{
+		Host: p.Repo.ServerHost,
+		Scheme:  p.Repo.ServerProtocol,
+	}
+	client, err := internal.NewClient(p.Repo.AuthToken, droneUri.String())
+	if err != nil {
+		return err
+	}
+	in, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
+	card := &drone.CardInput{
+		Data:   in,
+		Schema: "somelink", //TODO figure out what this should be
+	}
+	repo := strings.Split(p.Repo.Name, "/")
+	buildNumber, _ := strconv.ParseInt(p.Repo.BuildNumber, 10, 64)
+	stageNumber, _ := strconv.ParseInt(p.Repo.StageNumber, 10, 64)
+	stepNumber, _ := strconv.ParseInt(p.Repo.StepNumber, 10, 64)
+
+	fmt.Println("Pushing card details to drone server.")
+	err = client.CardCreate(repo[0], repo[1], buildNumber, stageNumber, stepNumber, card)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -340,6 +446,11 @@ func commandPush(build Build, tag string) *exec.Cmd {
 	target := fmt.Sprintf("%s:%s", build.Repo, tag)
 	return exec.Command(dockerExe, "push", target)
 }
+func commandInspect(build Build, tag string) *exec.Cmd {
+	target := fmt.Sprintf("%s:%s", build.Name, tag)
+	fmt.Println(target)
+	return exec.Command(dockerExe, "inspect", target)
+}
 
 // helper function to create the docker daemon command.
 func commandDaemon(daemon Daemon) *exec.Cmd {
@@ -385,6 +496,11 @@ func commandDaemon(daemon Daemon) *exec.Cmd {
 // helper to check if args match "docker prune"
 func isCommandPrune(args []string) bool {
 	return len(args) > 3 && args[2] == "prune"
+}
+
+// helper to check if args match "docker inspect"
+func isCommandInspect(args []string) bool {
+	return len(args) > 2 && args[1] == "inspect"
 }
 
 func commandPrune() *exec.Cmd {
