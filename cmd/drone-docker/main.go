@@ -19,7 +19,6 @@ func main() {
 	if env := os.Getenv("PLUGIN_ENV_FILE"); env != "" {
 		godotenv.Load("env")
 	}
-	//godotenv.Load("/Users/eoinmcafee/Desktop/Code/drone-docker/.env")
 
 	app := cli.NewApp()
 	app.Name = "docker plugin"
