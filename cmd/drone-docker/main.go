@@ -288,6 +288,11 @@ func main() {
 			Usage:  "drone auth token",
 			EnvVar: "DRONE_AUTH_TOKEN",
 		},
+		cli.StringFlag{
+			Name:   "card-schema-uri",
+			Usage:  "card schema uri",
+			EnvVar: "PLUGIN_CARD_SCHEMA",
+		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -344,15 +349,16 @@ func run(c *cli.Context) error {
 			Experimental:  c.Bool("daemon.experimental"),
 		},
 		Repo: docker.Repo{
-			Name:        c.String("ci-repo"),
-			BuildNumber: c.String("build-number"),
-			StageNumber: c.String("stage-number"),
-			StepNumber:  c.String("step-number"),
-			Author:      c.String("ci-author"),
-			ServerHost: c.String("drone-host"),
+			Name:           c.String("ci-repo"),
+			BuildNumber:    c.String("build-number"),
+			StageNumber:    c.String("stage-number"),
+			StepNumber:     c.String("step-number"),
+			Author:         c.String("ci-author"),
+			ServerHost:     c.String("drone-host"),
 			ServerProtocol: c.String("drone-protocol"),
-			AuthToken: c.String("drone-auth-token"),
+			AuthToken:      c.String("drone-auth-token"),
 		},
+		SchemaUri: c.String("card-schema-uri"),
 	}
 
 	if c.Bool("tags.auto") {

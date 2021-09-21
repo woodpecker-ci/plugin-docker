@@ -81,12 +81,13 @@ type (
 
 	// Plugin defines the Docker plugin parameters.
 	Plugin struct {
-		Login   Login  // Docker login configuration
-		Build   Build  // Docker build configuration
-		Daemon  Daemon // Docker daemon configuration
-		Dryrun  bool   // Docker push is skipped
-		Cleanup bool   // Docker purge is enabled
-		Repo    Repo   // Repo details
+		Login     Login  // Docker login configuration
+		Build     Build  // Docker build configuration
+		Daemon    Daemon // Docker daemon configuration
+		Dryrun    bool   // Docker push is skipped
+		Cleanup   bool   // Docker purge is enabled
+		Repo      Repo   // Repo details
+		SchemaUri string
 	}
 
 	CardData struct {
@@ -248,8 +249,8 @@ func PublishCard(dockerImageProps Inspect, p Plugin) error {
 	}
 
 	droneUri := url.URL{
-		Host: p.Repo.ServerHost,
-		Scheme:  p.Repo.ServerProtocol,
+		Host:   p.Repo.ServerHost,
+		Scheme: p.Repo.ServerProtocol,
 	}
 	client, err := internal.NewClient(p.Repo.AuthToken, droneUri.String())
 	if err != nil {
@@ -262,7 +263,7 @@ func PublishCard(dockerImageProps Inspect, p Plugin) error {
 
 	card := &drone.CardInput{
 		Data:   in,
-		Schema: "somelink", //TODO figure out what this should be
+		Schema: p.SchemaUri,
 	}
 	repo := strings.Split(p.Repo.Name, "/")
 	buildNumber, _ := strconv.ParseInt(p.Repo.BuildNumber, 10, 64)
